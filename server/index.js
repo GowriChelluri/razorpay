@@ -1,56 +1,75 @@
 const express = require("express");
-const Razorpay = require("razorpay");
-const cors = require("cors");
-const crypto = require("crypto");
-require("dotenv").config();
+const nodemailer = require('nodemailer');
+const bodyParser = require('body-parser');
+const { v4: uuidv4 } = require('uuid');
+const cors = require('cors'); // Import the cors package
+const Razorpay = require('razorpay'); // Import Razorpay package
 
 const app = express();
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 5000;
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: false }));
+
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: 'gowrichelluri08@gmail.com', // Update with your email address
+    pass: 'zzkrztfzrbwsjdru' // Update with your email password
+  },
+});
+
+// Enable CORS for all routes
 app.use(cors());
 
-app.post("/order", async (req, res) => {
+// Initialize Razorpay with your API key ID and secret
+const razorpay = new Razorpay({
+  key_id: 'rzp_test_fS1cbWzLChQVyN',
+  key_secret: 'sBfY94ltk5S1pnQJB47QtmSP',
+});
+
+app.post('/getData', async (req, res) => {
   try {
-    const razorpay = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID,
-      key_secret: process.env.RAZORPAY_SECRET,
-    });
+    const { email, name } = req.body;
 
-    const options = req.body;
-    const order = await razorpay.orders.create(options);
+    // Create Razorpay order
+    const orderOptions = {
+      amount: 1000, // Amount in paisa (Example: for ₹10, amount will be 1000)
+      currency: 'INR',
+      receipt: uuidv4(),
+      payment_capture: 1 // Auto capture payment
+    };
 
-    if (!order) {
-      return res.status(500).send("Error");
-    }
+    const order = await razorpay.orders.create(orderOptions);
 
-    res.json(order);
-  } catch (err) {
-    console.log(err);
-    res.status(500).send("Error");
+    // Construct payment link with order ID
+    const paymentLink = `https://razorpay.com/payment-link/plink_${order.id}/test`;
+
+    const mailOptions = {
+      from: 'gowrichelluri08@gmail.com',
+      to: email,
+      subject: 'Payment Link for Homaid Services',
+      html: `
+        <div>
+          <h1>Hi ${name},</h1>
+          <p>Click the following link to proceed with your payment:</p>
+          <a href="${paymentLink}">Proceed to Payment</a>
+          <p>If you have any questions, feel free to contact us.</p>
+          <p>Thank you for choosing Homaid Services!</p>
+        </div>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+
+    res.status(200).json({ message: 'Payment link sent successfully.', paymentLink });
+  } catch (error) {
+    console.error('Error sending payment email:', error);
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
-app.post("/order/validate", async (req, res) => {
-  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
-    req.body;
 
-  const sha = crypto.createHmac("sha256", process.env.RAZORPAY_SECRET);
-  //order_id + "|" + razorpay_payment_id
-  sha.update(`${razorpay_order_id}|${razorpay_payment_id}`);
-  const digest = sha.digest("hex");
-  if (digest !== razorpay_signature) {
-    return res.status(400).json({ msg: "Transaction is not legit!" });
-  }
 
-  res.json({
-    msg: "success",
-    orderId: razorpay_order_id,
-    paymentId: razorpay_payment_id,
-  });
-});
-
-  
 app.listen(PORT, () => {
-    console.log("Listening on port", PORT);
-  });
+  console.log(`Server is running on port ${PORT}`);
+});
